@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DOMICURA — Reimposta la password</title>
+  <meta name="robots" content="noindex" />
+  <style>
+    :root {
+      --primary: #0FB5A6; --primary-dark: #0A7A72; --navy: #0B2A4A;
+      --bg: #F4F6F7; --text: #1A1A1A; --text2: #6B7280;
+      --border: rgba(11,42,74,0.12); --emergency: #C62828;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+    header { background: var(--navy); color: #fff; padding: 34px 20px 28px; text-align: center; }
+    .logo { font-size: 24px; font-weight: 800; letter-spacing: 1px; }
+    .logo span { color: var(--primary); }
+    main { max-width: 460px; margin: -14px auto 40px; padding: 0 16px; }
+    .card { background: #fff; border: 1px solid var(--border); border-radius: 16px; padding: 26px 22px; }
+    h1 { font-size: 20px; color: var(--navy); margin-bottom: 6px; }
+    p { font-size: 14.5px; color: var(--text2); line-height: 1.55; margin-bottom: 14px; }
+    label { display: block; font-size: 13px; font-weight: 700; color: var(--text); margin: 12px 0 6px; }
+    input { width: 100%; padding: 13px 14px; font-size: 16px; border: 1px solid var(--border); border-radius: 12px; outline: none; }
+    input:focus { border-color: var(--primary); }
+    button { width: 100%; margin-top: 18px; padding: 15px; font-size: 15.5px; font-weight: 800; color: #fff; background: var(--primary); border: 0; border-radius: 14px; cursor: pointer; }
+    button:disabled { opacity: 0.45; cursor: default; }
+    .msg { margin-top: 12px; font-size: 13.5px; font-weight: 600; text-align: center; }
+    .msg.errore { color: var(--emergency); }
+    .msg.ok { color: var(--primary-dark); }
+    .esito { text-align: center; padding: 8px 0; }
+    .esito .icona { font-size: 44px; margin-bottom: 8px; }
+    .nascosto { display: none; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="logo">DOMICURA<span>●</span></div>
+  </header>
+  <main>
+    <div class="card">
+      <!-- stato: caricamento -->
+      <div id="caricamento">
+        <h1>Un attimo…</h1>
+        <p>Stiamo verificando il tuo link di recupero.</p>
+      </div>
+
+      <!-- stato: link non valido/scaduto -->
+      <div id="invalido" class="nascosto">
+        <div class="esito"><div class="icona">⏳</div></div>
+        <h1>Link scaduto o non valido</h1>
+        <p>Il link di recupero è già stato usato oppure è scaduto (dura un'ora). Torna nell'app DOMICURA, tocca di nuovo <strong>"Password dimenticata?"</strong> e riceverai una nuova email.</p>
+      </div>
+
+      <!-- stato: modulo nuova password -->
+      <div id="modulo" class="nascosto">
+        <h1>Imposta la nuova password</h1>
+        <p>Scegli una nuova password per il tuo account <strong id="email-utente"></strong>.</p>
+        <label for="pw1">Nuova password (min 6 caratteri)</label>
+        <input id="pw1" type="password" autocomplete="new-password" />
+        <label for="pw2">Ripeti la nuova password</label>
+        <input id="pw2" type="password" autocomplete="new-password" />
+        <button id="salva" disabled>Salva la nuova password</button>
+        <div id="messaggio" class="msg"></div>
+      </div>
+
+      <!-- stato: fatto -->
+      <div id="fatto" class="nascosto">
+        <div class="esito"><div class="icona">✅</div></div>
+        <h1>Password aggiornata!</h1>
+        <p>Ora torna nell'app <strong>DOMICURA</strong> e accedi con la tua nuova password.</p>
+      </div>
+    </div>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script>
+    const client = supabase.createClient(
+      'https://flmofhvvnleuofsenzfh.supabase.co',
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZsbW9maHZ2bmxldW9mc2VuemZoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM4MjYxNDcsImV4cCI6MjA5OTQwMjE0N30.nWlJ2Z1pKTW712VdOPuLrf-L7uTHxEiXuDL4z_q8NcM'
+    );
+
+    const mostra = (id) => {
+      for (const s of ['caricamento', 'invalido', 'modulo', 'fatto']) {
+        document.getElementById(s).classList.toggle('nascosto', s !== id);
+      }
+    };
+
+    async function avvia() {
+      // 1) errore esplicito nel link (scaduto/già usato)
+      const frammento = new URLSearchParams(location.hash.slice(1));
+      const query = new URLSearchParams(location.search);
+      if (frammento.get('error') || query.get('error')) return mostra('invalido');
+
+      // 2) flusso implicito: token nel frammento
+      const access = frammento.get('access_token');
+      const refresh = frammento.get('refresh_token');
+      try {
+        if (access && refresh) {
+          const { error } = await client.auth.setSession({ access_token: access, refresh_token: refresh });
+          if (error) return mostra('invalido');
+        } else if (query.get('code')) {
+          // 3) flusso PKCE: codice nella query
+          const { error } = await client.auth.exchangeCodeForSession(query.get('code'));
+          if (error) return mostra('invalido');
+        }
+        const { data } = await client.auth.getSession();
+        if (!data.session) return mostra('invalido');
+        document.getElementById('email-utente').textContent = data.session.user?.email || '';
+        mostra('modulo');
+      } catch (e) {
+        mostra('invalido');
+      }
+    }
+
+    const pw1 = document.getElementById('pw1');
+    const pw2 = document.getElementById('pw2');
+    const salva = document.getElementById('salva');
+    const messaggio = document.getElementById('messaggio');
+
+    function valida() {
+      salva.disabled = !(pw1.value.length >= 6 && pw1.value === pw2.value);
+      messaggio.textContent =
+        pw2.value.length > 0 && pw1.value !== pw2.value ? 'Le password non coincidono.' : '';
+      messaggio.className = 'msg errore';
+    }
+    pw1.addEventListener('input', valida);
+    pw2.addEventListener('input', valida);
+
+    salva.addEventListener('click', async () => {
+      salva.disabled = true;
+      messaggio.textContent = 'Salvataggio…';
+      messaggio.className = 'msg ok';
+      const { error } = await client.auth.updateUser({ password: pw1.value });
+      if (error) {
+        messaggio.textContent = 'Errore: ' + error.message;
+        messaggio.className = 'msg errore';
+        salva.disabled = false;
+        return;
+      }
+      await client.auth.signOut();
+      mostra('fatto');
+    });
+
+    avvia();
+  </script>
+</body>
+</html>
